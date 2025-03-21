@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Food Classification Results</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .result-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+        .result-image {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: block;
+        }
+        .prediction {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .prediction-label {
+            font-weight: bold;
+            min-width: 150px;
+        }
+        .prediction-bar {
+            height: 24px;
+            background-color: #4285f4;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        .prediction-score {
+            min-width: 60px;
+            text-align: right;
+        }
+        .is-food {
+            background-color: #34a853;
+        }
+        .not-food {
+            background-color: #ea4335;
+        }
+        .time {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .loading {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+        .empty-message {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .upload-info {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: #e8f0fe;
+            border-radius: 8px;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #4285f4;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            animation: slide-in 0.5s ease-out;
+        }
+        .fade-out {
+            opacity: 0;
+            transition: opacity 0.5s ease-out;
+        }
+        @keyframes slide-in {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .auto-update-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            color: #4285f4;
+            font-size: 0.9em;
+        }
+        .pulse {
+            width: 10px;
+            height: 10px;
+            background-color: #34a853;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Food Classification Results</h1>
+    
+    <div class="upload-info">
+        <p>Upload images to your Google Drive folder to classify them.</p>
+        <p>Bucket: <strong>foodclassifier-447400-food-images</strong></p>
+    </div>
+    
+    <div class="auto-update-indicator">
+        <div class="pulse"></div>
+        <span>Auto-updating in real-time</span>
+    </div>
+    
+    <div id="results-container" class="loading">Loading results...</div>
+
+    <script>
+        // Firebase configuration - Replace with your project values
+        const firebaseConfig = {
+            apiKey: "AIzaSyAKLMX-GtWoP95CZZnOlHj6HRzmMrZWjJo", // This is a public key, safe to include
+            projectId: "foodclassifier-447400",
+            storageBucket: "foodclassifier-447400-food-images.appspot.com",
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'Unknown';
+            
+            try {
+                // Handle Firestore timestamp objects
+                if (timestamp.toDate) {
+                    return timestamp.toDate().toLocaleString();
+                }
+                // Handle ISO strings
+                if (typeof timestamp === 'string' && timestamp.includes('T')) {
+                    return new Date(timestamp).toLocaleString();
+                }
+                return timestamp;
+            } catch (e) {
+                return timestamp;
+            }
+        }
+        
+        function setupRealtimeUpdates() {
+            const resultsContainer = document.getElementById('results-container');
+            resultsContainer.innerHTML = '<div class="loading">Loading results...</div>';
+            
+            // Listen for real-time updates
+            db.collection('processed_images')
+                .orderBy('timestamp', 'desc')
+                .limit(10)
+                .onSnapshot((snapshot) => {
+                    if (snapshot.empty) {
+                        resultsContainer.innerHTML = '<div class="empty-message">No classification results found. Upload an image to the storage bucket to get started!</div>';
+                        return;
+                    }
+                    
+                    // Check if this is the initial load or an update
+                    const isInitialLoad = !resultsContainer.querySelector('.result-card');
+                    
+                    // If this isn't the initial load, and something changed, show notification
+                    if (!isInitialLoad && snapshot.docChanges().length > 0) {
+                        const newImages = snapshot.docChanges()
+                            .filter(change => change.type === 'added')
+                            .map(change => change.doc.data().file_name);
+                            
+                        if (newImages.length > 0) {
+                            showNotification(`New classification: ${newImages[0]}${newImages.length > 1 ? ` and ${newImages.length - 1} more` : ''}`);
+                        }
+                    }
+                    
+                    // Clear container for refresh
+                    resultsContainer.innerHTML = '';
+                    
+                    // Display all results
+                    snapshot.forEach((doc) => {
+                        displayResultCard(doc.data(), resultsContainer);
+                    });
+                }, (error) => {
+                    console.error("Error watching collection: ", error);
+                    resultsContainer.innerHTML = `<div class="error">Error loading results: ${error.message}</div>`;
+                });
+        }
+        
+        // Helper function to display a result card
+        function displayResultCard(data, container) {
+            const card = document.createElement('div');
+            card.className = 'result-card';
+            
+            // Create header with filename and timestamp
+            const header = document.createElement('div');
+            header.className = 'result-header';
+            const fileName = document.createElement('h2');
+            fileName.textContent = data.file_name;
+            const time = document.createElement('span');
+            time.className = 'time';
+            time.textContent = formatTimestamp(data.timestamp);
+            header.appendChild(fileName);
+            header.appendChild(time);
+            card.appendChild(header);
+            
+            // Add image if available
+            if (data.image_url) {
+                const img = document.createElement('img');
+                img.src = data.image_url;
+                img.alt = data.file_name;
+                img.className = 'result-image';
+                card.appendChild(img);
+            }
+            
+            // Add predictions
+            const predictions = data.prediction || [];
+            if (predictions && predictions.length > 0) {
+                // Sort predictions by score, highest first
+                const sortedPredictions = [...predictions].sort((a, b) => b.score - a.score);
+                
+                // Take top 5
+                sortedPredictions.slice(0, 5).forEach(prediction => {
+                    const predDiv = document.createElement('div');
+                    predDiv.className = 'prediction';
+                    
+                    const label = document.createElement('div');
+                    label.className = 'prediction-label';
+                    label.textContent = prediction.label;
+                    
+                    const barWidth = Math.round(prediction.score * 100);
+                    const bar = document.createElement('div');
+                    bar.className = `prediction-bar ${prediction.is_food ? 'is-food' : 'not-food'}`;
+                    bar.style.width = `${barWidth * 3}px`; // Scale for better visualization
+                    
+                    const score = document.createElement('div');
+                    score.className = 'prediction-score';
+                    score.textContent = `${barWidth}%`;
+                    
+                    predDiv.appendChild(label);
+                    predDiv.appendChild(bar);
+                    predDiv.appendChild(score);
+                    
+                    card.appendChild(predDiv);
+                });
+            } else {
+                const noResults = document.createElement('p');
+                noResults.textContent = 'No predictions found for this image.';
+                card.appendChild(noResults);
+            }
+            
+            container.appendChild(card);
+        }
+        
+        // Notification function
+        function showNotification(message) {
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                notification.classList.add('fade-out');
+                setTimeout(() => notification.remove(), 500);
+            }, 3000);
+        }
+        
+        // Start real-time updates when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            setupRealtimeUpdates();
+        });
+    </script>
+</body>
+</html>
