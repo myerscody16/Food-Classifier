@@ -1,0 +1,44 @@
+flowchart TB
+    subgraph "User's Computer"
+    A[Upload Image to Google Drive]
+    end
+
+    subgraph "Google Drive"
+    B[Image in Monitored Folder]
+    end
+
+    subgraph "Google Cloud Platform"
+    C[Webhook Notification]
+    D[Drive-to-Storage Cloud Function]
+    E[Cloud Storage Bucket]
+    F[Food Classifier Cloud Function]
+    G[Firestore Database]
+    H[Static Website]
+    end
+
+    subgraph "User's Browser"
+    I[View Classification Results]
+    end
+
+    A -->|Upload| B
+    B -->|File Change| C
+    C -->|Trigger| D
+    D -->|Download Image from Drive| D
+    D -->|Store Image| E
+    D -->|Call Classifier| F
+    E -->|Image Path| F
+    F -->|Classify with Vision API| F
+    F -->|Save Results| G
+    G -->|Real-time Update| H
+    H -->|Display Results| I
+    
+    classDef green fill:#d1ffdd,stroke:#048a19,stroke-width:2px;
+    classDef blue fill:#d4f1f9,stroke:#0c5f82,stroke-width:2px;
+    classDef purple fill:#e6e6fa,stroke:#473c8b,stroke-width:2px;
+    classDef orange fill:#fff2cc,stroke:#d6b656,stroke-width:2px;
+    classDef red fill:#f8cecc,stroke:#b85450,stroke-width:2px;
+    
+    class A,I orange;
+    class B,C purple;
+    class D,F,H blue;
+    class E,G green;
